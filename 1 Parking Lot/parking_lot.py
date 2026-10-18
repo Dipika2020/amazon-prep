@@ -1,6 +1,7 @@
 
 from enum import Enum, auto
 from threading import Lock
+from datetime import datetime
 
 
 # Step 1: Define the types of vehicles supported by the parking lot.
@@ -69,6 +70,7 @@ class ParkingSpot:
         return not self.is_occupied
 
 # Step 5: Manage all parking spots on one floor.
+# import lock
 class ParkingFloor:
     def __init__(self, floor_id: str, spots: list[ParkingSpot]):
         # Identify this floor.
@@ -104,6 +106,88 @@ class ParkingFloor:
 
             # Return the successfully reserved spot.
             return spot
+
+# Step 6A: Create the Ticket class
+# import datetime & enum, auto
+
+# represents lifecycle of parking ticket
+class TicketStatus(Enum):
+    ACTIVE = auto()
+    PAID = auto()
+    CLOSED = auto()
+
+# store info about one parking session:
+class Ticket:
+    def __init__(self, ticket_id: str, vehicle: Vehicle, spot: ParkingSpot, entry_time: datetime,):
+        # unique identifier
+        self.ticket_id = ticket_id
+        self.vehicle = vehicle
+        #spot assigned to the vehicle
+        self.spot = spot
+        self.entry_time = entry_time
+        self.status = TicketStatus.ACTIVE
+
+    def mark_paid(self) -> None:
+        # record that payment is completed
+        if self.status != TicketStatus.ACTIVE:
+            raise ValueError("Only an active ticket can be paid.")
+
+        self.status = TicketStatus.PAID
+
+    def close(self) -> None:
+        # close ticket after payment
+        if self.status != TicketStatus.PAID:
+            raise ValueError("Ticket must be paid before closing.")
+
+        self.status = TicketStatus.CLOSED
+
+
+#Step 6B: Implement ParkingLot.park()
+
+# Coordinates parking across all floors.
+class ParkingLot:
+    def __init__(self, floors: list[ParkingFloor]):
+        # Store all floors belonging to this parking lot.
+        self.floors = floors
+
+        # Store issued tickets using their unique ticket IDs.
+        self.tickets: dict[str, Ticket] = {}
+
+        # Generate sequential ticket IDs for this example.
+        self._next_ticket_number = 1
+
+    def park(self, vehicle: Vehicle) -> Ticket | None:
+        # Search each floor until a compatible spot is reserved.
+        for floor in self.floors:
+            spot = floor.try_reserve(vehicle)
+
+            # Skip this floor if no compatible spot is available.
+            if spot is None:
+                continue
+
+            # Generate a ticket ID.
+            ticket_id = f"T-{self._next_ticket_number:04d}"
+            self._next_ticket_number += 1
+
+            # Record the time when the vehicle enters.
+            entry_time = datetime.now()
+
+            # Create a ticket for the parking session.
+            ticket = Ticket(ticket_id, vehicle, spot, entry_time)
+
+            # Store the ticket so checkout can find it later.
+            self.tickets[ticket_id] = ticket
+
+            # Return the ticket to the caller.
+            return ticket
+
+        # No floor had a compatible available spot.
+        return None
+
+
+
+
+
 
 # --------------------------------------------------
 # TEST CASES: Verify Steps 1–4
@@ -202,6 +286,46 @@ def run_tests():
     # The large spot is now occupied, so no suitable spot remains.
     assert truck_spot is None
     print("Test 11 passed: Full compatible capacity returns None.")
+
+    
+    # Test 12: Parking a vehicle reserves a spot and creates a ticket.
+    integration_spot = ParkingSpot("C-301", SpotType.COMPACT)
+    integration_floor = ParkingFloor("F-3", [integration_spot])
+    parking_lot = ParkingLot([integration_floor])
+
+    integration_car = Vehicle("CAR-301", VehicleType.CAR)
+    ticket = parking_lot.park(integration_car)
+
+    assert ticket is not None
+
+    print("Expected vehicle:", integration_car.license_plate)
+    print("Actual vehicle:", ticket.vehicle.license_plate)
+    print("Same object:", ticket.vehicle is integration_car)
+    print("Ticket ID:", ticket.ticket_id)
+
+    assert ticket.vehicle is integration_car
+
+    assert ticket.spot is integration_spot
+    assert ticket.status == TicketStatus.ACTIVE
+    assert ticket.ticket_id in parking_lot.tickets
+    assert integration_spot.is_available() is False
+    print("Test 12 passed: Parking creates a ticket and reserves a spot.")
+
+    # Test 13: A full lot rejects another vehicle.
+    another_car = Vehicle("CAR-302", VehicleType.CAR)
+    rejected_ticket = parking_lot.park(another_car)
+
+    assert rejected_ticket is None
+    print("Test 13 passed: A full lot rejects another vehicle.")
+
+    # Test 14: Ticket state transitions are validated.
+    ticket.mark_paid()
+    assert ticket.status == TicketStatus.PAID
+
+    ticket.close()
+    assert ticket.status == TicketStatus.CLOSED
+    print("Test 14 passed: Ticket payment and closure states work.")
+
 
 
     print("\nAll tests passed!")
